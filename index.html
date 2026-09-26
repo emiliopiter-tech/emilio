@@ -1,0 +1,75 @@
+<!doctype html><html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TC Max · Control de batería</title>
+<style>
+body{margin:0;background:#f4f5f7;color:#17181a;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:#111;color:#fff;padding:22px 18px}main{max-width:900px;margin:auto;padding:14px}
+.card{background:#fff;border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 1px 4px #0001}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.stat{font-size:23px;font-weight:750}.label{font-size:12px;color:#6b7078}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{font-size:12px;color:#6b7078;display:block;margin:7px 0 4px}
+input,button{width:100%;padding:11px;border:1px solid #e4e6e9;border-radius:10px;font:inherit;box-sizing:border-box}button{background:#1677ff;color:white;border:0;margin-top:12px;font-weight:650}
+.secondary{background:#eef3ff;color:#1559bd}.danger{background:#fff0f0;color:#c33}.scroll{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px 5px;border-bottom:1px solid #e4e6e9;text-align:right}th:first-child,td:first-child{text-align:left}
+.result{margin-top:10px;padding:10px;background:#f5f7fa;border-radius:10px;font-size:13px}.small{font-size:12px;color:#6b7078;line-height:1.45}
+canvas{width:100%;height:220px;border:1px solid #e4e6e9;border-radius:12px}@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr)}}
+</style>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#111111">
+<meta name="description" content="Registro local de trayectos y cargas de la Super Soco TC Max.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="TC Max">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+</head><body>
+<header><b style="font-size:24px">🏍️ TC Max · Control de batería</b><div style="color:#bbb;font-size:13px">Registro local de trayectos y cargas</div></header>
+<main>
+<div class="grid">
+<div class="card"><div class="label">Km registrados</div><div class="stat" id="km">0</div></div>
+<div class="card"><div class="label">Trayectos</div><div class="stat" id="nt">0</div></div>
+<div class="card"><div class="label">%/km medio</div><div class="stat" id="pk">—</div></div>
+<div class="card"><div class="label">Carga 0–100 media</div><div class="stat" id="full">—</div></div>
+</div>
+<div class="card"><h2>Añadir trayecto</h2><div class="row">
+<div><label>Fecha</label><input id="td" type="date"></div><div><label>Km inicial</label><input id="ts" type="number" step=".1"></div>
+<div><label>Km final</label><input id="te" type="number" step=".1"></div><div><label>Batería inicial %</label><input id="tbs" type="number" min="0" max="100"></div>
+<div><label>Batería final %</label><input id="tbe" type="number" min="0" max="100"></div><div><label>Observaciones</label><input id="tn"></div>
+</div><button onclick="trip()">Guardar trayecto</button><div id="tr" class="result" hidden></div></div>
+<div class="card"><h2>Añadir carga</h2><div class="row">
+<div><label>Fecha</label><input id="cd" type="date"></div><div><label>Batería inicial %</label><input id="cs" type="number"></div>
+<div><label>Batería final %</label><input id="ce" type="number"></div><div><label>kWh del enchufe</label><input id="ck" type="number" step=".001"></div>
+</div><button onclick="charge()">Guardar carga</button><div id="cr" class="result" hidden></div></div>
+<div class="card"><h2>📈 Consumo por trayecto</h2><canvas id="chart"></canvas></div>
+<div class="card"><h2>🛣️ Trayectos</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Km</th><th>%</th><th>%/km</th><th>Wh/km*</th></tr></thead><tbody id="tt"></tbody></table></div><p class="small">*Estimación usando la media de las cargas medidas desde el enchufe.</p></div>
+<div class="card"><h2>🔋 Cargas</h2><div class="scroll"><table><thead><tr><th>Fecha</th><th>Inicio</th><th>Fin</th><th>kWh</th><th>0–100</th></tr></thead><tbody id="ct"></tbody></table></div></div>
+<div class="card"><h2>💾 Datos</h2><button class="secondary" onclick="exportar()">Exportar copia</button><button class="secondary" onclick="$('importFile').click()">Importar copia</button><input id="importFile" type="file" accept="application/json,.json" hidden onchange="importar(this.files[0]);this.value=''"><button id="installBtn" class="secondary" hidden>Instalar aplicación</button><button class="danger" onclick="borrar()">Borrar todo</button><p class="small">Los datos se guardan localmente en este navegador/dispositivo. Exporta una copia periódicamente.</p></div>
+</main>
+<script>
+const KEY="tcmax_v1", seed={"trips":[{"date":"2026-09-22","start":58171,"end":58199,"bs":100,"be":74,"n":"Casa \u2192 trabajo"},{"date":"2026-09-22","start":58199,"end":58222,"bs":74,"be":47,"n":"Trabajo \u2192 casa"},{"date":"2026-09-23","start":58222,"end":58252,"bs":100,"be":73,"n":"Casa \u2192 trabajo"},{"date":"2026-09-23","start":58252,"end":58275,"bs":73,"be":43,"n":"Trabajo \u2192 casa"}],"charges":[{"date":"2026-09-17","start":30,"end":100,"kwh":2.465},{"date":"2026-09-20","start":40,"end":100,"kwh":2.048},{"date":"2026-09-23","start":47,"end":100,"kwh":1.94},{"date":"2026-09-24","start":43,"end":100,"kwh":2.027}]};
+let d=JSON.parse(localStorage.getItem(KEY)||"null")||seed;
+const $=x=>document.getElementById(x);
+$("td").value=$("cd").value=new Date().toISOString().slice(0,10);
+function save(){localStorage.setItem(KEY,JSON.stringify(d));render()}
+function trip(){let x={date:$("td").value,start:+$("ts").value,end:+$("te").value,bs:+$("tbs").value,be:+$("tbe").value,n:$("tn").value};if(!x.date||x.end<x.start||x.bs<x.be)return alert("Revisa los datos.");d.trips.push(x);$("tr").hidden=false;$("tr").textContent=`Guardado: ${(x.end-x.start).toFixed(1)} km · ${(x.bs-x.be).toFixed(0)}%`;["ts","te","tbs","tbe","tn"].forEach(i=>$(i).value="");save()}
+function charge(){let x={date:$("cd").value,start:+$("cs").value,end:+$("ce").value,kwh:+$("ck").value};if(!x.date||x.end<=x.start||x.kwh<=0)return alert("Revisa los datos.");d.charges.push(x);let f=x.kwh*100/(x.end-x.start);$("cr").hidden=false;$("cr").textContent=`Guardado · equivalente 0–100%: ${f.toFixed(2)} kWh de red`;["cs","ce","ck"].forEach(i=>$(i).value="");save()}
+function render(){let km=d.trips.reduce((s,x)=>s+x.end-x.start,0),pc=d.trips.reduce((s,x)=>s+x.bs-x.be,0);$("km").textContent=km.toFixed(0);$("nt").textContent=d.trips.length;$("pk").textContent=km?(pc/km).toFixed(2)+" %/km":"—";let full=d.charges.length?d.charges.reduce((s,x)=>s+x.kwh*100/(x.end-x.start),0)/d.charges.length:0;$("full").textContent=full?full.toFixed(2)+" kWh":"—";$("tt").innerHTML=d.trips.map(x=>{let k=x.end-x.start,p=x.bs-x.be,w=full?full*p/100*1000/k:0;return `<tr><td>${x.date}</td><td>${k.toFixed(1)}</td><td>${p}%</td><td>${(p/k).toFixed(2)}</td><td>${w?w.toFixed(0):"—"}</td></tr>`}).join("");$("ct").innerHTML=d.charges.map(x=>`<tr><td>${x.date}</td><td>${x.start}%</td><td>${x.end}%</td><td>${x.kwh.toFixed(3)}</td><td>${(x.kwh*100/(x.end-x.start)).toFixed(2)}</td></tr>`).join("");draw(full)}
+function draw(full){let c=$("chart"),ctx=c.getContext("2d"),w=c.clientWidth,h=c.clientHeight,s=devicePixelRatio||1;c.width=w*s;c.height=h*s;ctx.setTransform(s,0,0,s,0,0);ctx.clearRect(0,0,w,h);let a=d.trips.map(x=>({y:(x.bs-x.be)/(x.end-x.start)*full*10}));if(!a.length){ctx.fillText("Añade trayectos para ver la evolución.",20,30);return}let max=Math.max(...a.map(x=>x.y),1)*1.15,L=45,T=20,B=30,R=12,Pw=w-L-R,Ph=h-T-B;ctx.strokeStyle="#dfe3e8";ctx.beginPath();ctx.moveTo(L,T);ctx.lineTo(L,h-B);ctx.lineTo(w-R,h-B);ctx.stroke();a.forEach((p,i)=>{let x=L+(a.length==1?Pw/2:i*Pw/(a.length-1)),y=T+Ph*(1-p.y/max);if(i){let q=a[i-1],xq=L+(a.length==1?Pw/2:(i-1)*Pw/(a.length-1)),yq=T+Ph*(1-q.y/max);ctx.strokeStyle="#1677ff";ctx.beginPath();ctx.moveTo(xq,yq);ctx.lineTo(x,y);ctx.stroke()}ctx.fillStyle="#1677ff";ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fill();ctx.fillStyle="#555";ctx.font="11px system-ui";ctx.fillText(p.y.toFixed(0),x-12,y-9)})}
+function exportar(){let a=document.createElement("a"),u=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:"application/json"}));a.href=u;a.download="tc-max-datos.json";a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)}
+async function importar(file){if(!file)return;try{let x=JSON.parse(await file.text());if(!x||!Array.isArray(x.trips)||!Array.isArray(x.charges))throw new Error("Formato no válido");if(!confirm(`Importar ${x.trips.length} trayectos y ${x.charges.length} cargas? Esto sustituirá los datos actuales.`))return;d=x;save();alert("Copia importada correctamente.")}catch(e){alert("No se pudo importar la copia. Comprueba que sea un JSON exportado por TC Max.")}}
+function borrar(){if(confirm("¿Borrar todo el historial?")){d={trips:[],charges:[]};save()}}
+render();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(err => console.error("TC Max SW:", err)));
+}
+let deferredInstallPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{
+  e.preventDefault();deferredInstallPrompt=e;
+  const b=$("installBtn");b.hidden=false;
+  b.onclick=async()=>{b.hidden=true;deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null};
+});
+window.addEventListener("appinstalled",()=>{$("installBtn").hidden=true;deferredInstallPrompt=null});
+</script>
+</body></html>
